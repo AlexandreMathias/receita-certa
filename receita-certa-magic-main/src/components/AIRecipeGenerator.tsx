@@ -4,6 +4,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Recipe } from '@/types/recipe';
 import { RefreshCcw, Heart, Star, Pencil } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import ReactMarkdown from 'react-markdown';
 
 interface AIRecipeGeneratorProps {
   onRecipeGenerated: (recipe: Recipe) => void;
@@ -14,7 +15,7 @@ const GEMINI_API_KEY = "AIzaSyDChI3sZGL-8sW45zUCXEoG55RlYNV6sig";
 
 const AIRecipeGenerator = ({ onRecipeGenerated, onViewRecipe }: AIRecipeGeneratorProps) => {
   const [input, setInput] = useState('');
-  const [generatedRecipe, setGeneratedRecipe] = useState<Recipe | null>(null);
+  const [markdownContent, setMarkdownContent] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const { toast } = useToast();
@@ -31,7 +32,6 @@ const AIRecipeGenerator = ({ onRecipeGenerated, onViewRecipe }: AIRecipeGenerato
 
     setIsGenerating(true);
 
-    console.log("testando a chave", GEMINI_API_KEY);
     try {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
@@ -41,51 +41,35 @@ const AIRecipeGenerator = ({ onRecipeGenerated, onViewRecipe }: AIRecipeGenerato
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-  contents: [
-    {
-      role: "user",
-      parts: [{
-        text: `Você é um assistente de cozinha explicando para um cozinheiro amador. Gere uma receita fácil, com até 5 passos simples, usando linguagem clara. Pedido: ${input}`
-      }]
+            contents: [
+              {
+                role: "user",
+                parts: [{
+                  text: `Você é um assistente de cozinha explicando para um cozinheiro amador, uma receita facil com o menor numero de passos, usando linguagem clara. Retorne a receita formatada em Markdown. Tem na cozinha: ${input}.
+                  Precisa conter ### Ingredientes e ### Modo de Preparo`
+                }],
               },
             ],
           }),
         }
       );
 
+      console.log(response);
+      if (!response.ok) throw new Error("Erro ao gerar receita");
+
       const data = await response.json();
 
-      console.log(data);
-
+      console.log(data.usageMetadata);
       const generatedText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-      console.log(generatedText);
-
       if (!generatedText) throw new Error("Nenhuma resposta recebida");
-
-      const lines = generatedText.split("\n").filter(line => line.trim() !== "");
-      const ingredients: string[] = [];
-      const instructions: string[] = [];
-      let isInstruction = false;
-
-      for (const line of lines) {
-        if (line.toLowerCase().includes("modo de preparo") || line.toLowerCase().includes("preparo")) {
-          isInstruction = true;
-          continue;
-        }
-        if (isInstruction) {
-          instructions.push(line);
-        } else {
-          ingredients.push(line);
-        }
-      }
 
       const recipe: Recipe = {
         id: `gemini-${Date.now()}`,
         title: `Receita com IA: ${input.substring(0, 30)}`,
         description: `Receita gerada pela IA Gemini com base no seu pedido: "${input}"`,
-        ingredients,
-        instructions,
+        ingredients: [],
+        instructions: [generatedText], // armazenado como markdown puro
         prepTime: 30,
         difficulty: "Médio",
         servings: 4,
@@ -95,7 +79,7 @@ const AIRecipeGenerator = ({ onRecipeGenerated, onViewRecipe }: AIRecipeGenerato
         averageRating: 0,
       };
 
-      setGeneratedRecipe(recipe);
+      setMarkdownContent(generatedText);
       onRecipeGenerated(recipe);
 
       toast({
@@ -116,13 +100,11 @@ const AIRecipeGenerator = ({ onRecipeGenerated, onViewRecipe }: AIRecipeGenerato
   };
 
   const handleLike = () => {
-    if (generatedRecipe) {
-      setIsLiked(!isLiked);
-      toast({
-        title: isLiked ? "Like removido" : "Gostei! ❤️",
-        description: isLiked ? "Obrigado pelo feedback!" : "Que bom que você gostou!",
-      });
-    }
+    setIsLiked(!isLiked);
+    toast({
+      title: isLiked ? "Like removido" : "Gostei! ❤️",
+      description: isLiked ? "Obrigado pelo feedback!" : "Que bom que você gostou!",
+    });
   };
 
   const handleRating = () => {
@@ -170,62 +152,65 @@ const AIRecipeGenerator = ({ onRecipeGenerated, onViewRecipe }: AIRecipeGenerato
         </div>
       </div>
 
-      {generatedRecipe && (
-        <div className="recipe-card p-8 animate-scale-in">
-          <h3 className="text-2xl font-bold text-recipe-text mb-4">
-            {generatedRecipe.title}
-          </h3>
+{markdownContent && (
+  <div className="recipe-card p-8 animate-scale-in">
+    <h3 className="text-2xl font-bold text-recipe-text mb-4">
+      Receita Gerada
+    </h3>
 
-          <p className="text-recipe-text/70 mb-6">{generatedRecipe.description}</p>
+    <p className="text-recipe-text/70 mb-6">
+      Receita baseada no pedido: <strong>{input}</strong>
+    </p>
 
-          <div className="grid md:grid-cols-2 gap-6 mb-6">
-            <div>
-              <h4 className="font-semibold text-recipe-text mb-3">Ingredientes:</h4>
-              <ul className="space-y-2">
-                {generatedRecipe.ingredients.map((ingredient, index) => (
-                  <li key={index} className="text-recipe-text/80 flex items-start">
-                    <span className="mr-2 text-recipe-primary">•</span>
-                    <span>{ingredient}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-semibold text-recipe-text mb-3">Modo de Preparo:</h4>
-              <ol className="space-y-2">
-                {generatedRecipe.instructions.map((step, index) => (
-                  <li key={index} className="text-recipe-text/80">
-                    <span className="font-medium text-recipe-primary">{index + 1}.</span> {step}
-                  </li>
-                ))}
-              </ol>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-3 justify-center">
-            <Button onClick={handleLike} variant="ghost" className={`flex items-center space-x-2 ${isLiked ? 'text-recipe-accent' : 'text-recipe-text/60'}`}>
-              <Heart className={`h-5 w-5 ${isLiked ? 'fill-current' : ''}`} />
-              <span>Gostei!</span>
-            </Button>
-
-            <Button onClick={handleRating} variant="ghost" className="flex items-center space-x-2 text-recipe-text/60 hover:text-recipe-secondary">
-              <Star className="h-5 w-5" />
-              <span>Avaliar</span>
-            </Button>
-
-            <Button onClick={() => onViewRecipe(generatedRecipe)} variant="ghost" className="flex items-center space-x-2 text-recipe-text/60 hover:text-recipe-primary">
-              <Pencil className="h-5 w-5" />
-              <span>Ver Completa</span>
-            </Button>
-
-            <Button onClick={generateSimilar} variant="ghost" className="flex items-center space-x-2 text-recipe-text/60 hover:text-recipe-secondary">
-              <RefreshCcw className="h-5 w-5" />
-              <span>Gerar Similar</span>
-            </Button>
-          </div>
+    <div className="grid md:grid-cols-2 gap-6 mb-6">
+      {/* Ingredientes */}
+      <div>
+        <h4 className="font-semibold text-recipe-text mb-3">Ingredientes</h4>
+        <div className="prose prose-neutral max-w-none text-recipe-text">
+          <ReactMarkdown>
+            {
+              markdownContent
+                .split(/###\s*Modo de Preparo/i)[0] // pega tudo antes de "Modo de Preparo"
+                .replace(/###\s*Ingredientes/i, '') // remove o título duplicado
+            }
+          </ReactMarkdown>
         </div>
-      )}
+      </div>
+
+      {/* Modo de Preparo */}
+      <div>
+        <h4 className="font-semibold text-recipe-text mb-3">Modo de Preparo</h4>
+        <div className="prose prose-neutral max-w-none text-recipe-text">
+          <ReactMarkdown>
+            {
+              markdownContent.includes('### Modo de Preparo')
+                ? markdownContent.split(/###\s*Modo de Preparo/i)[1]
+                : 'Modo de preparo não identificado.'
+            }
+          </ReactMarkdown>
+        </div>
+      </div>
+    </div>
+
+    <div className="flex flex-wrap gap-3 justify-center mt-6">
+      <Button onClick={handleLike} variant="ghost" className={`flex items-center space-x-2 ${isLiked ? 'text-recipe-accent' : 'text-recipe-text/60'}`}>
+        <Heart className={`h-5 w-5 ${isLiked ? 'fill-current' : ''}`} />
+        <span>Gostei!</span>
+      </Button>
+
+      <Button onClick={handleRating} variant="ghost" className="flex items-center space-x-2 text-recipe-text/60 hover:text-recipe-secondary">
+        <Star className="h-5 w-5" />
+        <span>Avaliar</span>
+      </Button>
+
+      <Button onClick={generateSimilar} variant="ghost" className="flex items-center space-x-2 text-recipe-text/60 hover:text-recipe-secondary">
+        <RefreshCcw className="h-5 w-5" />
+        <span>Gerar Similar</span>
+      </Button>
+    </div>
+  </div>
+)}
+
     </div>
   );
 };
